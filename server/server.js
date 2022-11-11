@@ -83,3 +83,105 @@ io.of("/").on("connect", (socket) => {
     socket.disconnect(true);
   });
 });
+
+//................................
+
+//...
+io.of("/").on("connect", (socket) => {
+  //...
+
+  socket.on("list_messages_group", (data) => {
+    console.log("\n%s", data);
+    var msgs = io.of("/").room_messages[data.group];
+    socket.emit("list_messages_group", {
+      sender: data.sender,
+      action: "list_messages_group",
+      group: data.group,
+      msgs: msgs,
+    });
+  });
+});
+
+//...
+io.of("/").on("connect", (socket) => {
+  //...
+
+  socket.on("broadcast_group", (data) => {
+    console.log("\n%s", data);
+    socket.to(data.group).emit("broadcast_group", data);
+    if (undefined === io.of("/").room_messages) {
+      io.of("/").room_messages = {};
+    }
+    if (undefined === io.of("/").room_messages[data.group]) {
+      io.of("/").room_messages[data.group] = [];
+    }
+    io.of("/").room_messages[data.group].push(data.msg);
+  });
+});
+
+//...
+function db_save_message(group, sender, msg) {
+  db.serialize(() => {
+    db.run(
+      "CREATE TABLE IF NOT EXISTS room_messages(thegroup TEXT, sender TEXT, msg TEXT)",
+      function (err) {
+        if (err) {
+          throw err;
+        }
+      }
+    );
+
+    db.run(
+      "INSERT INTO room_messages(thegroup, sender, msg) VALUES(?,?,?)",
+      [group, sender, msg],
+      function (err) {
+        if (err) {
+          throw err;
+        }
+        console.log("Saved the message to the database, rowid: " + this.lastID);
+      }
+    );
+  });
+}
+
+//...
+io.of("/").on("connect", (socket) => {
+  //...
+
+  socket.on("broadcast_group", (data) => {
+    //...
+    db_save_message(data.group, data.sender, data.msg);
+  });
+});
+
+//...
+io.of("/").on("connect", (socket) => {
+  //...
+  socket.on("list_messages_group", () => {
+    console.log("\n%s", data);
+    db.serialize(() => {
+      db.all(
+        "SELECT msg FROM room_messages WHERE thegroup = ?",
+        [data.group],
+        (err, rows) => {
+          var msgs = [];
+
+          if (err) {
+            throw err;
+          }
+          rows.forEach((row) => {
+            console.log("Got a message from the database: " + row.msg);
+            msgs.push(row.msg);
+          });
+
+          socket.emit("list_messages_group", {
+            sender: data.sender,
+            action: "list_messages_group",
+            group: data.group,
+            msgs: msgs,
+          });
+        }
+      );
+    });
+  });
+});
